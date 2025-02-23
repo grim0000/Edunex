@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EDUNEX</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@1.0.2/css/bulma.min.css">
+  <style>
+    /* Animated gradient background */
+    body {
+      background: linear-gradient(45deg, #4A90E2, #9013FE, #E91E63, #FF9800);
+      background-size: 300% 300%;
+      animation: gradientBG 10s ease infinite;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    @keyframes gradientBG {
+      0% { background-position: 0% 50%; }
+      50% { background-position: 100% 50%; }
+      100% { background-position: 0% 50%; }
+    }
+    .box {
+      background: rgba(255, 255, 255, 0.9);
+      border-radius: 10px;
+      padding: 2rem;
+      box-shadow: 0px 10px 20px rgba(0, 0, 0, 0.2);
+    }
+  </style>
+</head>
+<body>
+  <section class="section">
+    <div class="container has-text-centered">
+      <h1 class="title is-1 has-text-white">EDUNEX</h1>
+      <h2 class="subtitle is-4 has-text-white">
+        The go-to app to connect with the community and chat!
+      </h2>
+      <div class="box mt-5">
+        <h3 class="title is-3" style="color: #666;">Choose how you want to use the app</h3>
+        <div class="buttons is-centered mt-4">
+          <!-- When these links are clicked, the main app's routes will spawn new servers -->
+          <a href="http://localhost:5000" class="button is-link is-large">
+            Offline Mode <span class="tag is-dark ml-2">Faster</span>
+          </a>
+          <a href="http://localhost:5001" class="button is-link is-large">
+            Online Mode <span class="tag is-dark ml-2">Slower</span>
+          </a>
+        </div>
+      </div>
+    </div>
+  </section>
+</body>
+</html>
