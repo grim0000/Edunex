@@ -1,45 +1,41 @@
-import io
 import json
 import time
 import os
 import uuid
-import aiohttp # type: ignore
+import aiohttp
 import asyncio
-import logging
 from functools import lru_cache, wraps
 from datetime import date, datetime, timedelta
-from gtts import gTTS # type: ignore
-from flask import send_file # type: ignore
-from flask import Flask, render_template_string, request, redirect, url_for, flash, session # type: ignore
-import firebase_admin # type: ignore
-from firebase_admin import credentials, firestore, storage # type: ignore
-from werkzeug.security import generate_password_hash, check_password_hash # type: ignore
-from huggingface_hub import InferenceClient # type: ignore
 
-
+from flask import Flask, render_template_string, request, redirect, url_for, flash, session
+import firebase_admin
+from firebase_admin import credentials, firestore, storage
+from werkzeug.security import generate_password_hash, check_password_hash
+from huggingface_hub import InferenceClient
+# Firebase Initialization
+# -------------------------------
 cred = credentials.Certificate("serviceAccountKey.json")
 firebase_admin.initialize_app(cred, {
     'storageBucket': "firstproject-5211a.firebasestorage.app"
 })
 db = firestore.client()
 bucket = storage.bucket()
-logging.basicConfig(level=logging.DEBUG)
-logger = logging.getLogger(__name__)
 
-
-
+# -------------------------------
+# Flask App Initialization
+# -------------------------------
 app = Flask(__name__)
 app.secret_key = 'secret_key_here'
-
-
-
-
+# -------------------------------
+# Hugging Face API Setup
+# -------------------------------
+# Replace with your Hugging Face API token
 HF_API_TOKEN = "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"
 client = InferenceClient(token=HF_API_TOKEN)
 CHATS_DIR = "chats"
 os.makedirs(CHATS_DIR, exist_ok=True)
-
-MODEL_NAME = "meta-llama/Llama-3.2-3B-Instruct"  
+# Use a conversational model available via the API (e.g., distilgpt2 or a LLaMA variant if accessible)
+MODEL_NAME = "meta-llama/Llama-3.2-3B-Instruct"  # Switch to "meta-llama/Llama-2-7b-chat-hf" if you have access
 def list_pending_tasks():
     pending_tasks_query = db.collection("tasks").where("status", "==", "pending").order_by("deadline").limit(50).stream()
     tasks = [f"{t['name']} - Deadline: {t.get('deadline', 'No deadline')}" for t in (doc.to_dict() for doc in pending_tasks_query)]
@@ -59,7 +55,7 @@ def suggest_prioritization():
     
     priorities = []
     if tasks:
-        
+        # Prioritize by deadline (soonest first) and high priority
         sorted_tasks = sorted(tasks, key=lambda x: (x["deadline"] is None, x["deadline"] if x["deadline"] else "9999-12-31", not x["highPriority"]))
         priorities.extend([f"{i+1}. {task['name']} (Deadline: {task['deadline'] if task['deadline'] else 'No deadline'}, {'High Priority' if task['highPriority'] else 'Normal Priority'})" for i, task in enumerate(sorted_tasks[:5])])
     
@@ -192,14 +188,14 @@ def estimate_time_for_tasks():
     tasks = [t for t in (doc.to_dict() for doc in pending_tasks_query)]
     total_time = 0
     for task in tasks:
-        
+        # Simple estimation: 30 minutes per task, adjust based on complexity or tags if available
         complexity = task.get("complexity", "medium")
         if complexity == "high":
-            total_time += 60  
+            total_time += 60  # 1 hour
         elif complexity == "low":
-            total_time += 15  
+            total_time += 15  # 15 minutes
         else:
-            total_time += 30  
+            total_time += 30  # 30 minutes (default)
     
     hours = total_time // 60
     minutes = total_time % 60
@@ -226,7 +222,7 @@ def suggest_break_times():
                 next_activity_time = activity_time
         if next_activity_time:
             break_duration = (next_activity_time - current_time).total_seconds() / 60
-            if break_duration > 15:  
+            if break_duration > 15:  # Suggest breaks longer than 15 minutes
                 break_times.append(f"Take a break from {current_time.strftime('%H:%M')} to {next_activity_time.strftime('%H:%M')} ({break_duration:.0f} minutes)")
             current_time = next_activity_time
         else:
@@ -241,7 +237,7 @@ def load_chat_history(user_id):
         with open(file_path, 'r') as f:
             return json.load(f)
     return []
-history ='NULL'
+
 def save_chat_history(user_id, history):
     user_email = session.get('user', {}).get('email', 'default_user')
     file_path = os.path.join(CHATS_DIR, f"{user_email}_chat_history.json")
@@ -249,14 +245,14 @@ def save_chat_history(user_id, history):
         json.dump(history, f, indent=4)
 
 async def get_chatbot_response_async(user_input, context_data=""):
+    # Combine context, history, and user input for better context
+    history_text = "\n".join([f"User: {h['user']}\nAI: {h['bot']}" for h in history[-5:]]) if history else "" # type: ignore
     
-    history_text = "\n".join([f"User: {h['user']}\nAI: {h['bot']}" for h in history[-5:]]) if history else "" 
-    
-    
+    # Parse user input for specific intents
     user_input_lower = user_input.lower()
     response = None
     
-    
+    # Handle schedule queries (existing)
     if any(keyword in user_input_lower for keyword in ["schedule", "today's schedule", "what is my schedule"]):
         schedule = get_today_schedule()
         if "list it out" in user_input_lower:
@@ -265,12 +261,12 @@ async def get_chatbot_response_async(user_input, context_data=""):
         else:
             response = f"Good morning! You have a schedule for today. Would you like me to list it out? Here’s a brief overview: {schedule[:50]}{'...' if len(schedule) > 50 else ''}"
     
-    
+    # Handle attendance queries (existing)
     elif "how much is" in user_input_lower and "attendance" in user_input_lower:
         student_name = user_input_lower.split("how much is")[1].split("attendance")[0].strip()
         response = get_student_attendance(student_name) or "I couldn’t find that student’s attendance. Could you check the name?"
 
-    
+    # Handle marking attendance (existing)
     elif "mark" in user_input_lower and ("present" in user_input_lower or "absent" in user_input_lower):
         parts = user_input_lower.split("mark")
         if len(parts) > 1:
@@ -279,45 +275,45 @@ async def get_chatbot_response_async(user_input, context_data=""):
             status = "present" if "present" in user_input_lower else "absent"
             response = mark_attendance(student_name, status)
 
-    
+    # Handle test queries (existing)
     elif "do i have a test" in user_input_lower or "are there any tests" in user_input_lower:
         response = check_for_tests()
 
-    
+    # Handle workload stress queries (existing)
     elif "is my work stressful today" in user_input_lower:
         response = assess_workload_stress()
 
-    
-    
+    # New functionalities
+    # List pending tasks
     elif "what are my pending tasks" in user_input_lower or "list my pending tasks" in user_input_lower:
         response = list_pending_tasks()
 
-    
+    # Suggest prioritization
     elif "what should i prioritize today" in user_input_lower:
         response = suggest_prioritization()
 
-    
+    # Check upcoming deadlines
     elif "what are my upcoming deadlines" in user_input_lower:
         response = check_upcoming_deadlines()
 
-    
+    # Generate study tips
     elif "what study tips for" in user_input_lower:
         student_name = user_input_lower.split("what study tips for")[1].strip()
         response = generate_study_tips(student_name) or "I couldn’t find study tips for that student. Please check the name."
 
-    
+    # Notify about overdue tasks
     elif "do i have any overdue tasks" in user_input_lower:
         response = notify_overdue_tasks()
 
-    
+    # Estimate time for tasks
     elif "how much time will my tasks take today" in user_input_lower:
         response = estimate_time_for_tasks()
 
-    
+    # Suggest break times
     elif "when should i take a break today" in user_input_lower:
         response = suggest_break_times()
 
-    
+    # Default conversational response if no specific intent is matched
     if not response:
         prompt = (
             f"You are a helpful, polite, and accurate AI assistant for a teacher. "
@@ -350,10 +346,10 @@ def get_chatbot_response(user_input, context_data="", history=[]):
     response = loop.run_until_complete(get_chatbot_response_async(user_input, context_data, history))
     loop.close()
     return response
-
+# Helper function to get chatbot response via API
 def get_chatbot_response(user_input, context_data=""):
-    
-    rude_words = ["rude", "stupid", "bad"]  
+    # Simple check for rude input (expand as needed)
+    rude_words = ["rude", "stupid", "bad"]  # Add more as needed
     if any(word in user_input.lower() for word in rude_words):
         return "I’m sorry, I can’t respond to that. How can I assist you today in a polite and helpful way?"
     
@@ -376,9 +372,9 @@ def get_chatbot_response(user_input, context_data=""):
         return response.strip()
     except Exception as e:
         return f"Sorry, I encountered an error: {str(e)}"
-
-
-
+# -------------------------------
+# Login Required Decorator
+# -------------------------------
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -388,9 +384,9 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
-
-
-
+# -------------------------------
+# Base Template with Violet Theme, MacOS-Inspired UI, and Animations
+# -------------------------------
 base_template = """
 <!DOCTYPE html>
 <html lang="en">
@@ -463,13 +459,14 @@ base_template = """
 </body>
 </html>
 """
-
-
-
+# -------------------------------
+# AI Insights Endpoint
+# -------------------------------
 
 @app.route('/ai-insights', methods=['GET', 'POST'])
 @login_required
 def ai_insights():
+    # Fetch dashboard data for context (use existing get_dashboard_stats)
     @lru_cache(maxsize=128)
     def get_dashboard_stats():
         sched_ref = db.collection("schedule").document("today")
@@ -502,10 +499,14 @@ def ai_insights():
         upcoming_deadlines_query = db.collection("tasks").where("deadline", ">=", current_date).where("deadline", "<=", future_date).limit(50)
         upcoming_deadlines_count = len(list(upcoming_deadlines_query.stream()))
         
+        # Get today's schedule details
         schedule_details = get_today_schedule()
+        
         return (num_activities, pending_tasks_count, alert_count, upcoming_deadlines_count, schedule_details)
 
     num_activities, pending_tasks_count, alert_count, upcoming_deadlines_count, schedule_details = get_dashboard_stats()
+
+    # Context string for the AI
     context = (
         f"Teacher dashboard stats: {num_activities} activities today, "
         f"{pending_tasks_count} pending tasks, {alert_count} student alerts, "
@@ -513,10 +514,10 @@ def ai_insights():
         f"Today's schedule: {schedule_details}"
     )
     
+    # Load chat history for the current user
     user_id = session.get('user', {}).get('email', 'default_user')
     chat_history = load_chat_history(user_id)
     
-    audio_url = None
     if request.method == 'POST':
         user_input = request.form.get('message')
         if user_input:
@@ -525,33 +526,10 @@ def ai_insights():
                 save_chat_history(user_id, chat_history)
                 flash("Chat history reset!")
             else:
+                # Get AI response using the full chat history
                 response = get_chatbot_response(user_input, context)
                 chat_history.append({"user": user_input, "bot": response})
-                save_chat_history(user_id, chat_history[-50:])
-
-                
-                try:
-                    tts = gTTS(text=response, lang='en')
-                    audio_filename = f"response_{user_id}_{int(time.time())}.mp3"
-                    audio_path = os.path.join(CHATS_DIR, audio_filename)
-                    
-                    
-                    os.makedirs(CHATS_DIR, exist_ok=True)
-                    
-                    
-                    tts.save(audio_path)
-                    logger.debug(f"Audio saved to {audio_path}")
-                    
-                    if os.path.exists(audio_path):
-                        audio_url = url_for('serve_audio', filename=audio_filename)
-                        logger.debug(f"Audio URL generated: {audio_url}")
-                    else:
-                        logger.error(f"Audio file not found at {audio_path} after saving")
-                        flash("Failed to generate audio response.")
-                except Exception as e:
-                    logger.error(f"TTS error: {str(e)}")
-                    flash(f"Error generating audio: {str(e)}")
-
+                save_chat_history(user_id, chat_history[-50:])  # Limit to last 50 messages
             return redirect(url_for('ai_insights'))
     
     chat_html = ""
@@ -566,60 +544,19 @@ def ai_insights():
     content = f"""
     <div class="bg-white p-6 rounded-lg shadow-md">
       <h2 class="text-2xl font-bold mb-4">AI Insights</h2>
-      <p class="mb-4 text-gray-600">Ask me anything about your dashboard or teaching needs! Use the mic or type 'reset' to clear the chat.</p>
+      <p class="mb-4 text-gray-600">Ask me anything about your dashboard or teaching needs! Type 'reset' to clear the chat.</p>
       <div class="max-h-96 overflow-y-auto mb-4 p-4 bg-gray-50 rounded">
         {chat_html if chat_html else '<p class="text-gray-500">Start chatting with me!</p>'}
       </div>
-      <form method="post" class="flex space-x-2" id="chat-form">
-        <input type="text" name="message" id="message-input" placeholder="Ask the AI..." class="flex-1 p-2 border rounded focus:ring-2 focus:ring-violet-500" required>
-        <button type="button" id="mic-button" class="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600 transition-colors"><i class="fas fa-microphone"></i></button>
+      <form method="post" class="flex space-x-2">
+        <input type="text" name="message" placeholder="Ask the AI..." class="flex-1 p-2 border rounded focus:ring-2 focus:ring-violet-500" required>
         <button type="submit" class="bg-violet-600 text-white px-4 py-2 rounded hover:bg-violet-700 transition-colors">Send</button>
       </form>
-      {'<audio controls autoplay src="' + audio_url + '"></audio>' if audio_url else ''}
     </div>
-    <script src="https://kit.fontawesome.com/a076d05399.js" crossorigin="anonymous"></script>
-    <script>
-      const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
-      recognition.continuous = false;
-      recognition.lang = 'en-US';
-      const micButton = document.getElementById('mic-button');
-      const messageInput = document.getElementById('message-input');
-      const form = document.getElementById('chat-form');
-
-      micButton.addEventListener('click', () => {{
-        recognition.start();
-        micButton.classList.add('bg-red-500');
-      }});
-
-      recognition.onresult = (event) => {{
-        const transcript = event.results[0][0].transcript;
-        messageInput.value = transcript;
-        micButton.classList.remove('bg-red-500');
-        form.submit();
-      }};
-
-      recognition.onend = () => {{
-        micButton.classList.remove('bg-red-500');
-      }};
-
-      recognition.onerror = (event) => {{
-        alert('Speech recognition error: ' + event.error);
-        micButton.classList.remove('bg-red-500');
-      }};
-    </script>
     """
     return render_template_string(base_template, content=content, active_page='ai-insights', dark_mode=False)
-
-@app.route('/audio/<filename>')
-def serve_audio(filename):
-    audio_path = os.path.join(CHATS_DIR, filename)
-    if os.path.exists(audio_path):
-        return send_file(audio_path, mimetype='audio/mpeg')
-    else:
-        logger.error(f"Audio file not found: {audio_path}")
-        return "Audio file not found", 404
-
-
+# Authentication Endpoints
+# -------------------------------
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
@@ -640,7 +577,7 @@ def register():
             "email": email,
             "password": generate_password_hash(password),
             "avatar": avatar if avatar else "https://via.placeholder.com/40",
-            "created_at": datetime.datetime.utcnow()
+            "created_at": datetime.utcnow()
         }
         doc_ref = users_ref.add(user_data)
         flash("Registration successful! Please log in.")
@@ -720,9 +657,9 @@ def logout():
     flash("Logged out successfully!")
     return redirect(url_for('login'))
 
-
-
-
+# -------------------------------
+# User Profile Endpoint
+# -------------------------------
 @app.route('/profile', methods=['GET', 'POST'])
 @login_required
 def profile():
@@ -760,24 +697,24 @@ def profile():
     """
     return render_template_string(base_template, content=content, active_page='Profile', dark_mode=False)
 
-
-
-
+# -------------------------------
+# Dashboard Endpoint
+# -------------------------------
 @app.route('/')
 @app.route('/dashboard')
 @login_required
 def dashboard():
-    
+    # Today's Schedule
     sched_ref = db.collection("schedule").document("today")
     doc = sched_ref.get()
     sched_data = doc.to_dict() if doc.exists else {s: "" for s in ['09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00']}
     num_activities = sum(1 for act in sched_data.values() if act.strip())
     
-    
+    # Pending Tasks
     pending_tasks_query = db.collection("tasks").where("status", "==", "pending")
     pending_tasks_count = len(list(pending_tasks_query.stream()))
     
-    
+    # Student Alerts
     students_ref = db.collection("students").stream()
     alert_count = 0
     for doc in students_ref:
@@ -795,7 +732,7 @@ def dashboard():
         if percentage < 50:
             alert_count += 1
     
-    
+    # Upcoming Deadlines
     current_date = date.today().isoformat()
     future_date = (date.today() + timedelta(days=7)).isoformat()
     upcoming_deadlines_query = db.collection("tasks").where("deadline", ">=", current_date).where("deadline", "<=", future_date)
@@ -824,9 +761,9 @@ def dashboard():
     content = render_template_string(content_template, num_activities=num_activities, pending_tasks_count=pending_tasks_count, alert_count=alert_count, upcoming_deadlines_count=upcoming_deadlines_count)
     return render_template_string(base_template, content=content, active_page='dashboard', dark_mode=False)
 
-
-
-
+# -------------------------------
+# Attendance Endpoint (with Dropdown for Class Selection)
+# -------------------------------
 @app.route('/attendance', methods=['GET', 'POST'])
 @login_required
 def attendance():
@@ -939,9 +876,9 @@ def attendance():
         flash(f"An error occurred: {str(e)}")
         return redirect(url_for('dashboard'))
 
-
-
-
+# -------------------------------
+# Today’s Schedule Endpoint
+# -------------------------------
 @app.route('/today-schedule', methods=['GET', 'POST'])
 @login_required
 def today_schedule():
@@ -988,9 +925,9 @@ def today_schedule():
         flash(f"An error occurred: {str(e)}")
         return redirect(url_for('dashboard'))
 
-
-
-
+# -------------------------------
+# Pending Tasks Endpoint (with Upcoming Deadlines Visualization)
+# -------------------------------
 @app.route('/pending-tasks', methods=['GET', 'POST'])
 @login_required
 def pending_tasks():
@@ -1012,7 +949,7 @@ def pending_tasks():
                 "checklist": request.form.get('task_checklist', '').split(',') if request.form.get('task_checklist') else [],
                 "repeat": request.form.get('task_repeat') or None,
                 "notificationsEnabled": request.form.get('notifications_enabled') == 'on',
-                "createdAt": datetime.datetime.utcnow()
+                "createdAt": datetime.utcnow()
             }
             file = request.files.get('task_image')
             if file and file.filename:
@@ -1266,9 +1203,9 @@ def pending_tasks():
     """
     return render_template_string(base_template, content=content, active_page='pending-tasks', dark_mode=False)
 
-
-
-
+# -------------------------------
+# Student Alerts Endpoint (Fixed Attendance Calculation)
+# -------------------------------
 @app.route('/student-alerts')
 @login_required
 def student_alerts():
@@ -1297,9 +1234,9 @@ def student_alerts():
     """
     return render_template_string(base_template, content=content, active_page='student-alerts', dark_mode=False)
 
-
-
-
+# -------------------------------
+# Upcoming Deadlines Endpoint
+# -------------------------------
 @app.route('/upcoming-deadlines')
 @login_required
 def upcoming_deadlines():
@@ -1325,9 +1262,9 @@ def upcoming_deadlines():
     """
     return render_template_string(base_template, content=content, active_page='upcoming-deadlines', dark_mode=False)
 
-
-
-
+# -------------------------------
+# Student Forum Endpoints
+# -------------------------------
 forum_template = """
 <!DOCTYPE html>
 <html lang="en">
@@ -1526,7 +1463,7 @@ def forum_add_post():
             "title": newPostTitle,
             "content": newPostContent,
             "comments": [],
-            "createdAt": datetime.datetime.utcnow()
+            "createdAt": datetime.utcnow()
         }
         db.collection("forum_posts").add(post_data)
         flash("Post created!")
@@ -1665,9 +1602,9 @@ def forum_toggle_star():
     flash("Post ID and comment ID are required.")
     return redirect(url_for('student_forum'))
 
-
-
-
+# -------------------------------
+# Assignments and Tests Endpoints
+# -------------------------------
 @app.route('/assignments-tests', methods=['GET'])
 @login_required
 def assignments_tests():
@@ -1708,7 +1645,7 @@ def add_assignment():
                 "subject": subject,
                 "deadline": deadline,
                 "file_url": file_url,
-                "created_at": datetime.datetime.utcnow()
+                "created_at": datetime.utcnow()
             }
             db.collection("assignments").add(assignment_data)
             flash("Assignment added!")
@@ -1801,7 +1738,7 @@ def add_test():
                     "max_marks": max_marks_int,
                     "duration": duration,
                     "test_link": test_link,
-                    "created_at": datetime.datetime.utcnow()
+                    "created_at": datetime.utcnow()
                 }
                 db.collection("tests").add(test_data)
                 flash("Test added!")
@@ -1923,9 +1860,9 @@ def enter_test_score(test_id, student_id):
         flash("Score is required.")
     return redirect(url_for('view_test_results', test_id=test_id))
 
-
-
-
+# -------------------------------
+# Student Performance Endpoint (Fixed Attendance Calculation)
+# -------------------------------
 @app.route('/student-performance')
 @login_required
 def student_performance():
@@ -1968,9 +1905,9 @@ def student_performance():
     """
     return render_template_string(base_template, content=content, active_page='student-performance', dark_mode=False)
 
-
-
-
+# -------------------------------
+# Student Management Endpoints
+# -------------------------------
 @app.route('/students')
 @login_required
 def students():
@@ -2099,9 +2036,9 @@ def delete_student(student_id):
         flash("Student not found.")
     return redirect(url_for('students'))
 
-
-
-
+# -------------------------------
+# Messaging Endpoint
+# -------------------------------
 @app.route('/messaging', methods=['GET', 'POST'])
 @login_required
 def messaging():
@@ -2112,7 +2049,7 @@ def messaging():
             if not target:
                 flash("Please enter a username or email to start a conversation.")
                 return redirect(url_for('messaging'))
-            
+            # Check if target user exists
             target_user = list(db.collection("users").where(filter=firestore.FieldFilter("email", "==", target)).stream())
             if not target_user:
                 flash("Target user does not exist.")
@@ -2146,7 +2083,7 @@ def messaging():
                     messages.append({
                         "sender": current_user,
                         "content": message_text,
-                        "timestamp": datetime.datetime.utcnow()
+                        "timestamp": datetime.utcnow()
                     })
                     conv_ref.update({"messages": messages})
                     flash("Message sent!")
@@ -2218,9 +2155,9 @@ def messaging():
         """
         return render_template_string(base_template, content=content, active_page='messaging', dark_mode=False)
 
-
-
-
+# -------------------------------
+# Settings Endpoint (Fixed Logout and Delete Account)
+# -------------------------------
 @app.route('/settings', methods=['GET', 'POST'])
 @login_required
 def settings():
@@ -2246,28 +2183,28 @@ def settings():
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
             <span class="text-lg font-medium">Account</span>
           </div>
-          <a href="
+          <a href="#" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 transition-colors" onclick="alert('Edit Account')">Edit</a>
         </div>
         <div class="flex items-center justify-between p-4 bg-gray-50 rounded">
           <div class="flex items-center space-x-2">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207"/></svg>
             <span class="text-lg font-medium">Email</span>
           </div>
-          <a href="
+          <a href="#" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 transition-colors" onclick="alert('Change Email')">Change</a>
         </div>
         <div class="flex items-center justify-between p-4 bg-gray-50 rounded">
           <div class="flex items-center space-x-2">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-4.215A2.422 2.422 0 0118.5 11.5V8a2 2 0 00-2-2H8a2 2 0 00-2 2v3.5c0 .464-.184 .908-.512 1.285L4 17h5m6 0v-2a2 2 0 012-2h2a2 2 0 012 2v2m-6 0h6"/></svg>
             <span class="text-lg font-medium">Notifications</span>
           </div>
-          <a href="
+          <a href="#" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 transition-colors" onclick="alert('Manage Notifications')">Manage</a>
         </div>
         <div class="flex items-center justify-between p-4 bg-gray-50 rounded">
           <div class="flex items-center space-x-2">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
             <span class="text-lg font-medium">Security</span>
           </div>
-          <a href="
+          <a href="#" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 transition-colors" onclick="alert('Security Settings')">Edit</a>
         </div>
         <div class="flex items-center justify-between p-4 bg-gray-50 rounded">
           <form method="post" class="w-full">
@@ -2286,8 +2223,8 @@ def settings():
     """
     return render_template_string(base_template, content=content, active_page='settings', dark_mode=False)
 
-
-
-
+# -------------------------------
+# Run the Flask App
+# -------------------------------
 if __name__ == '__main__':
-    app.run(debug=True,port=5001)
+    app.run(debug=True,port=5002)
